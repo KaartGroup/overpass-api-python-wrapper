@@ -4,7 +4,6 @@
 # See LICENSE.txt for the full license text.
 
 import csv
-import json
 import logging
 import re
 from datetime import datetime
@@ -115,7 +114,7 @@ class API(object):
         elif content_type in ("text/xml", "application/xml", "application/osm3s+xml"):
             return r.text
         else:
-            response = json.loads(r.text)
+            response = r.json()
 
         if not build:
             return response
@@ -261,7 +260,8 @@ class API(object):
             r.encoding = "utf-8"
             return r
 
-    def _as_geojson(self, elements):
+    @staticmethod
+    def _as_geojson(elements):
         ids_already_seen = set()
         features = []
         geometry = None
@@ -284,35 +284,45 @@ class API(object):
             if elem_user:
                 elem_tags["user"] = elem_user
             if elem_uid:
-                elem_tags["uid"] = elem_uid  
+                elem_tags["uid"] = elem_uid
             if elem_version:
-                elem_tags["version"] = elem_version                                                
+                elem_tags["version"] = elem_version
             elem_geom = elem.get("geometry", [])
             if elem_type == "node":
                 # Create Point geometry
                 geometry = geojson.Point((elem.get("lon"), elem.get("lat")))
             elif elem_type == "way":
                 # Create LineString geometry
-                geometry = geojson.LineString([(coords["lon"], coords["lat"]) for coords in elem_geom])
+                geometry = geojson.LineString([
+                    (coords["lon"], coords["lat"]) for coords in elem_geom
+                ])
             elif elem_type == "relation":
                 # Initialize polygon list
                 polygons = []
                 # First obtain the outer polygons
                 for member in elem.get("members", []):
                     if member["role"] == "outer":
-                        points = [(coords["lon"], coords["lat"]) for coords in member.get("geometry", [])]
+                        points = [
+                            (coords["lon"], coords["lat"]) for coords in member.get("geometry", [])
+                        ]
                         # Check that the outer polygon is complete
                         if points and points[-1] == points[0]:
                             polygons.append([points])
                         else:
-                            raise UnknownOverpassError("Received corrupt data from Overpass (incomplete polygon).")
+                            raise UnknownOverpassError(
+                                "Received corrupt data from Overpass (incomplete polygon)."
+                            )
                 # Then get the inner polygons
                 for member in elem.get("members", []):
                     if member["role"] == "inner":
-                        points = [(coords["lon"], coords["lat"]) for coords in member.get("geometry", [])]
+                        points = [
+                            (coords["lon"], coords["lat"]) for coords in member.get("geometry", [])
+                        ]
                         # Check that the inner polygon is complete
                         if not points or points[-1] != points[0]:
-                            raise UnknownOverpassError("Received corrupt data from Overpass (incomplete polygon).")
+                            raise UnknownOverpassError(
+                                "Received corrupt data from Overpass (incomplete polygon)."
+                            )
                         # We need to check to which outer polygon the inner polygon belongs
                         point = Point(points[0])
                         for poly in polygons:
@@ -321,8 +331,10 @@ class API(object):
                                 poly.append(points)
                                 break
                         else:
-                            raise UnknownOverpassError("Received corrupt data from Overpass (inner polygon cannot "
-                                                       "be matched to outer polygon).")
+                            raise UnknownOverpassError(
+                                "Received corrupt data from Overpass (inner polygon cannot "
+                                "be matched to outer polygon)."
+                            )
                 # Finally create MultiPolygon geometry
                 if polygons:
                     geometry = geojson.MultiPolygon(polygons)
